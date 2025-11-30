@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Layout from './components/layout/Layout';
 import Dashboard from './pages/Dashboard';
+import { storage } from './services/hybridStorage';
 
 // Placeholder pages
 import Projects from './pages/Projects';
@@ -17,6 +18,10 @@ import Playbook from './pages/Playbook';
 import Settings from './pages/Settings';
 
 function App() {
+  useEffect(() => {
+    storage.syncFromFirestore();
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

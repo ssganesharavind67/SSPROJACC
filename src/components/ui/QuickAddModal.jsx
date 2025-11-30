@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, ArrowRight, Check, AlertCircle, Loader2, Mic, MicOff, Sparkles, Hammer, CreditCard } from 'lucide-react';
 import { parseInputText } from '../../utils/textParser';
-import { storage } from '../../services/storage';
+import { storage } from '../../services/hybridStorage';
 
 const QuickAddModal = ({ isOpen, onClose }) => {
     const [activeTab, setActiveTab] = useState('smart');
@@ -28,8 +28,7 @@ const QuickAddModal = ({ isOpen, onClose }) => {
 
     useEffect(() => {
         if (isOpen) {
-            setProjects(storage.getProjects());
-            setTools(storage.getMaterials().filter(m => m.type === 'Tool'));
+            loadData();
             setInput('');
             setParsedData(null);
             setIsListening(false);
@@ -37,6 +36,19 @@ const QuickAddModal = ({ isOpen, onClose }) => {
             stopListening();
         }
     }, [isOpen]);
+
+    const loadData = async () => {
+        try {
+            const [loadedProjects, loadedMaterials] = await Promise.all([
+                storage.getProjects(),
+                storage.getMaterials()
+            ]);
+            setProjects(loadedProjects || []);
+            setTools((loadedMaterials || []).filter(m => m.type === 'Tool'));
+        } catch (error) {
+            console.error('Error loading data:', error);
+        }
+    };
 
     useEffect(() => {
         if (input.trim().length > 3) {
@@ -127,15 +139,15 @@ const QuickAddModal = ({ isOpen, onClose }) => {
         }
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         setIsSubmitting(true);
 
-        setTimeout(() => {
+        try {
             if (activeTab === 'smart') {
                 if (!parsedData || !parsedData.amount || !parsedData.projectId) return;
                 if (parsedData.type === 'expense') {
-                    storage.addExpense({
+                    await storage.addExpense({
                         projectId: parsedData.projectId,
                         amount: parsedData.amount,
                         category: parsedData.category,
@@ -145,7 +157,7 @@ const QuickAddModal = ({ isOpen, onClose }) => {
                         status: 'Paid'
                     });
                 } else {
-                    storage.addPayment({
+                    await storage.addPayment({
                         projectId: parsedData.projectId,
                         amount: parsedData.amount,
                         date: new Date().toISOString().split('T')[0],
@@ -156,11 +168,11 @@ const QuickAddModal = ({ isOpen, onClose }) => {
                 }
             } else if (activeTab === 'tool') {
                 if (selectedToolId && stockUpdateQty) {
-                    storage.updateStock(selectedToolId, stockUpdateQty, stockUpdateType);
+                    await storage.updateStock(selectedToolId, stockUpdateQty, stockUpdateType);
                 }
             } else if (activeTab === 'payment') {
                 if (paymentData.projectId && paymentData.amount) {
-                    storage.addPayment({
+                    await storage.addPayment({
                         projectId: paymentData.projectId,
                         amount: paymentData.amount,
                         date: new Date().toISOString().split('T')[0],
@@ -178,7 +190,10 @@ const QuickAddModal = ({ isOpen, onClose }) => {
             setSelectedToolId('');
             setStockUpdateQty('');
             setPaymentData({ projectId: '', amount: '', description: '', method: 'Bank Transfer' });
-        }, 500);
+        } catch (error) {
+            console.error('Error submitting:', error);
+            setIsSubmitting(false);
+        }
     };
 
     if (!isOpen) return null;

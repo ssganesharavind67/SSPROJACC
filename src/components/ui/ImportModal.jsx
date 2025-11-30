@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Upload, X, FileSpreadsheet, Check, AlertCircle, ArrowRight, Loader2, Database, TrendingUp, TrendingDown, ChevronDown, ChevronUp } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { storage } from '../../services/storage';
+import { storage } from '../../services/hybridStorage';
 
 const ImportModal = ({ isOpen, onClose, onImportComplete }) => {
     const [step, setStep] = useState('upload');
@@ -44,7 +44,7 @@ const ImportModal = ({ isOpen, onClose, onImportComplete }) => {
 
         setTimeout(() => {
             const reader = new FileReader();
-            reader.onload = (e) => {
+            reader.onload = async (e) => {
                 try {
                     const data = new Uint8Array(e.target.result);
                     const workbook = XLSX.read(data, { type: 'array' });
@@ -52,7 +52,7 @@ const ImportModal = ({ isOpen, onClose, onImportComplete }) => {
                     const worksheet = workbook.Sheets[firstSheetName];
                     const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-                    processData(jsonData);
+                    await processData(jsonData);
                 } catch (error) {
                     console.error("Error reading file:", error);
                     setStep('upload');
@@ -63,132 +63,144 @@ const ImportModal = ({ isOpen, onClose, onImportComplete }) => {
         }, 100);
     };
 
-    const processData = (data) => {
-        const existingProjects = storage.getProjects();
-        const existingExpenses = storage.getExpenses();
-        const existingPayments = storage.getPayments();
+    const processData = async (data) => {
+        try {
+            const existingProjects = await storage.getProjects();
+            const existingExpenses = await storage.getExpenses();
+            const existingPayments = await storage.getPayments();
 
-        const expenseSignatures = new Set(
-            existingExpenses.map(e => `${parseFloat(e.amount).toFixed(2)}_${e.date.split('T')[0]}_${e.description?.trim().toLowerCase()}`)
-        );
-        const paymentSignatures = new Set(
-            existingPayments.map(p => `${parseFloat(p.amount).toFixed(2)}_${p.date.split('T')[0]}_${p.description?.trim().toLowerCase()}`)
-        );
+            const expenseSignatures = new Set(
+                existingExpenses.map(e => `${parseFloat(e.amount).toFixed(2)}_${e.date.split('T')[0]}_${e.description?.trim().toLowerCase()}`)
+            );
+            const paymentSignatures = new Set(
+                existingPayments.map(p => `${parseFloat(p.amount).toFixed(2)}_${p.date.split('T')[0]}_${p.description?.trim().toLowerCase()}`)
+            );
 
-        const newProjectsMap = new Map();
-        const newExpenses = [];
-        const newPayments = [];
-        const duplicates = [];
-        const baseTimestamp = Date.now();
+            const newProjectsMap = new Map();
+            const newExpenses = [];
+            const newPayments = [];
+            const duplicates = [];
+            const baseTimestamp = Date.now();
 
-        const normalize = (str) => str?.toString().trim().toLowerCase();
+            const normalize = (str) => str?.toString().trim().toLowerCase();
+            const parseAmount = (val) => {
+                if (!val) return 0;
+                if (typeof val === 'number') return val;
+                const str = val.toString().replace(/[^0-9.-]/g, '');
+                return parseFloat(str) || 0;
+            };
 
-        data.forEach((row, index) => {
-            const keys = Object.keys(row);
-            const dateKey = keys.find(k => /date|day|time|when/i.test(k));
-            const descKey = keys.find(k => /particulars|description|desc|narration|details|item|remarks|purpose|note|comment|party|despriction/i.test(k));
-            const projectKey = keys.find(k => /project|site/i.test(k));
-            const debitKey = keys.find(k => /debit|dr/i.test(k));
-            const creditKey = keys.find(k => /credit|cr/i.test(k));
+            data.forEach((row, index) => {
+                const keys = Object.keys(row);
+                const dateKey = keys.find(k => /date|day|time|when/i.test(k));
+                const descKey = keys.find(k => /particulars|description|desc|narration|details|item|remarks|purpose|note|comment|party|despriction/i.test(k));
+                const projectKey = keys.find(k => /project|site/i.test(k));
+                const debitKey = keys.find(k => /debit|dr/i.test(k));
+                const creditKey = keys.find(k => /credit|cr/i.test(k));
 
-            if (!projectKey) return;
+                if (!projectKey) return;
 
-            const rawProjectName = row[projectKey]?.toString().trim();
-            if (!rawProjectName) return;
-            const normProjectName = normalize(rawProjectName);
+                const rawProjectName = row[projectKey]?.toString().trim();
+                if (!rawProjectName) return;
+                const normProjectName = normalize(rawProjectName);
 
-            let projectId = existingProjects.find(p => normalize(p.name) === normProjectName)?.id;
+                let projectId = existingProjects.find(p => normalize(p.name) === normProjectName)?.id;
 
-            if (!projectId) {
-                if (!newProjectsMap.has(normProjectName)) {
-                    const projectIndex = newProjectsMap.size;
-                    newProjectsMap.set(normProjectName, {
-                        id: `proj_${baseTimestamp}_${projectIndex}`,
-                        name: rawProjectName,
-                        budget: 0,
-                        spent: 0,
-                        received: 0,
-                        status: 'Active',
-                        location: 'Imported',
-                        startDate: new Date().toISOString().split('T')[0]
-                    });
-                }
-                projectId = newProjectsMap.get(normProjectName).id;
-            }
-
-            const description = row[descKey] || 'Imported Entry';
-            let dateStr = new Date().toISOString().split('T')[0];
-            if (row[dateKey]) {
-                if (typeof row[dateKey] === 'number') {
-                    const dateObj = new Date((row[dateKey] - (25567 + 2)) * 86400 * 1000);
-                    dateStr = dateObj.toISOString().split('T')[0];
-                } else {
-                    const parsedDate = new Date(row[dateKey]);
-                    if (!isNaN(parsedDate)) {
-                        dateStr = parsedDate.toISOString().split('T')[0];
+                if (!projectId) {
+                    if (!newProjectsMap.has(normProjectName)) {
+                        const projectIndex = newProjectsMap.size;
+                        newProjectsMap.set(normProjectName, {
+                            id: `proj_${baseTimestamp}_${projectIndex}`,
+                            name: rawProjectName,
+                            budget: 0,
+                            spent: 0,
+                            received: 0,
+                            status: 'Active',
+                            location: 'Imported',
+                            startDate: new Date().toISOString().split('T')[0]
+                        });
                     }
+                    projectId = newProjectsMap.get(normProjectName).id;
                 }
-            }
 
-            if (debitKey && row[debitKey]) {
-                const debitAmount = parseFloat(row[debitKey]) || 0;
-
-                if (debitAmount > 0) {
-                    const signature = `${debitAmount.toFixed(2)}_${dateStr}_${description.trim().toLowerCase()}`;
-                    const expenseObj = {
-                        id: `exp_${baseTimestamp}_${index}`,
-                        projectId,
-                        amount: debitAmount,
-                        date: dateStr,
-                        description,
-                        category: 'Materials',
-                        status: 'Paid',
-                        projectName: rawProjectName // For display
-                    };
-
-                    if (expenseSignatures.has(signature)) {
-                        duplicates.push({ ...expenseObj, type: 'Expense', reason: 'Exact match found' });
+                const description = row[descKey] || 'Imported Entry';
+                let dateStr = new Date().toISOString().split('T')[0];
+                if (row[dateKey]) {
+                    if (typeof row[dateKey] === 'number') {
+                        const dateObj = new Date((row[dateKey] - (25567 + 2)) * 86400 * 1000);
+                        dateStr = dateObj.toISOString().split('T')[0];
                     } else {
-                        newExpenses.push(expenseObj);
-                        expenseSignatures.add(signature);
+                        const parsedDate = new Date(row[dateKey]);
+                        if (!isNaN(parsedDate)) {
+                            dateStr = parsedDate.toISOString().split('T')[0];
+                        }
                     }
                 }
-            }
 
-            if (creditKey && row[creditKey]) {
-                const creditAmount = parseFloat(row[creditKey]) || 0;
+                if (debitKey && row[debitKey]) {
+                    const debitAmount = parseAmount(row[debitKey]);
 
-                if (creditAmount > 0) {
-                    const signature = `${creditAmount.toFixed(2)}_${dateStr}_${description.trim().toLowerCase()}`;
-                    const paymentObj = {
-                        id: `pay_${baseTimestamp}_${index}`,
-                        projectId,
-                        amount: creditAmount,
-                        date: dateStr,
-                        description,
-                        method: 'Bank Transfer',
-                        status: 'Completed',
-                        projectName: rawProjectName // For display
-                    };
+                    if (debitAmount > 0) {
+                        const signature = `${debitAmount.toFixed(2)}_${dateStr}_${description.trim().toLowerCase()}`;
+                        const expenseObj = {
+                            id: `exp_${baseTimestamp}_${index}`,
+                            projectId,
+                            amount: debitAmount,
+                            date: dateStr,
+                            description,
+                            category: 'Materials',
+                            status: 'Paid',
+                            projectName: rawProjectName // For display
+                        };
 
-                    if (paymentSignatures.has(signature)) {
-                        duplicates.push({ ...paymentObj, type: 'Payment', reason: 'Exact match found' });
-                    } else {
-                        newPayments.push(paymentObj);
-                        paymentSignatures.add(signature);
+                        if (expenseSignatures.has(signature)) {
+                            duplicates.push({ ...expenseObj, type: 'Expense', reason: 'Exact match found' });
+                        } else {
+                            newExpenses.push(expenseObj);
+                            expenseSignatures.add(signature);
+                        }
                     }
                 }
-            }
-        });
 
-        setAnalysis({
-            totalRows: data.length,
-            newProjects: Array.from(newProjectsMap.values()),
-            newExpenses,
-            newPayments,
-            duplicates
-        });
-        setStep('preview');
+                if (creditKey && row[creditKey]) {
+                    const creditAmount = parseAmount(row[creditKey]);
+
+                    if (creditAmount > 0) {
+                        const signature = `${creditAmount.toFixed(2)}_${dateStr}_${description.trim().toLowerCase()}`;
+                        const paymentObj = {
+                            id: `pay_${baseTimestamp}_${index}`,
+                            projectId,
+                            amount: creditAmount,
+                            date: dateStr,
+                            description,
+                            method: 'Bank Transfer',
+                            status: 'Completed',
+                            projectName: rawProjectName // For display
+                        };
+
+                        if (paymentSignatures.has(signature)) {
+                            duplicates.push({ ...paymentObj, type: 'Payment', reason: 'Exact match found' });
+                        } else {
+                            newPayments.push(paymentObj);
+                            paymentSignatures.add(signature);
+                        }
+                    }
+                }
+            });
+
+            setAnalysis({
+                totalRows: data.length,
+                newProjects: Array.from(newProjectsMap.values()),
+                newExpenses,
+                newPayments,
+                duplicates
+            });
+            setStep('preview');
+        } catch (error) {
+            console.error("Error processing data:", error);
+            setStep('upload');
+            alert("Error processing file data.");
+        }
     };
 
     const toggleDuplicate = (id) => {
@@ -201,13 +213,12 @@ const ImportModal = ({ isOpen, onClose, onImportComplete }) => {
         setSelectedDuplicates(newSelected);
     };
 
-    const handleImport = () => {
+    const handleImport = async () => {
         setStep('importing');
 
-        setTimeout(() => {
-            const currentProjects = storage.getProjects();
-            const currentExpenses = storage.getExpenses();
-            const currentPayments = storage.getPayments();
+        try {
+            const currentProjects = await storage.getProjects();
+            const currentProjectsMap = new Map(currentProjects.map(p => [p.id, p]));
 
             // Merge selected duplicates into the main lists
             const duplicatesToImport = analysis.duplicates.filter(d => selectedDuplicates.has(d.id));
@@ -226,38 +237,51 @@ const ImportModal = ({ isOpen, onClose, onImportComplete }) => {
                 projectUpdates.get(p.projectId).received += Number(p.amount);
             });
 
-            const updatedExistingProjects = currentProjects.map(p => {
-                const updates = projectUpdates.get(p.id);
-                if (updates) {
-                    return {
-                        ...p,
-                        spent: (p.spent || 0) + updates.spent,
-                        received: (p.received || 0) + updates.received
-                    };
-                }
-                return p;
-            });
-
+            // Prepare new projects with zero totals
+            // The totals will be updated when addExpense/addPayment are called
             const preparedNewProjects = analysis.newProjects.map(p => {
-                const updates = projectUpdates.get(p.id);
                 return {
                     ...p,
-                    spent: updates ? updates.spent : 0,
-                    received: updates ? updates.received : 0
+                    spent: 0,
+                    received: 0
                 };
             });
 
-            const finalProjects = [...updatedExistingProjects, ...preparedNewProjects];
-            const finalExpenses = [...currentExpenses, ...finalNewExpenses];
-            const finalPayments = [...currentPayments, ...finalNewPayments];
+            // Sync to Firebase using hybrid storage
 
-            localStorage.setItem('bb_projects', JSON.stringify(finalProjects));
-            localStorage.setItem('bb_expenses', JSON.stringify(finalExpenses));
-            localStorage.setItem('bb_payments', JSON.stringify(finalPayments));
+            // 1. Add new projects first so they exist for expenses/payments
+            for (const project of preparedNewProjects) {
+                await storage.addProject(project);
+            }
+
+            // 2. Add new expenses
+            for (const expense of finalNewExpenses) {
+                await storage.addExpense(expense);
+            }
+
+            // 3. Add new payments
+            for (const payment of finalNewPayments) {
+                await storage.addPayment(payment);
+            }
+
+            // 4. Update existing projects with new totals
+            for (const [projectId, updates] of projectUpdates) {
+                // Check if it's an existing project (not one we just added)
+                const existingProject = currentProjectsMap.get(projectId);
+                if (existingProject) {
+                    await storage.updateProject(projectId, {
+                        spent: (existingProject.spent || 0) + updates.spent,
+                        received: (existingProject.received || 0) + updates.received
+                    });
+                }
+            }
 
             setStep('success');
             if (onImportComplete) onImportComplete();
-        }, 100);
+        } catch (error) {
+            console.error('Import failed:', error);
+            setStep('error');
+        }
     };
 
     const reset = () => {

@@ -38,6 +38,7 @@ const Expenses = () => {
     });
     const [sortOrder, setSortOrder] = useState('newest');
     const [showScrollTop, setShowScrollTop] = useState(false);
+    const [selectedExpenses, setSelectedExpenses] = useState(new Set());
 
     useEffect(() => {
         const loadInitialData = async () => {
@@ -169,12 +170,53 @@ const Expenses = () => {
         if (window.confirm('Are you sure you want to delete this expense?')) {
             try {
                 await storage.deleteExpense(id);
-                // Refresh list after delete
-                const updatedList = await storage.getExpenses();
-                setExpenses(updatedList || []);
+                setExpenses(expenses.filter(e => e.id !== id));
+                setSelectedExpenses(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(id);
+                    return newSet;
+                });
             } catch (error) {
-                console.error("Error deleting expense:", error);
-                alert("Failed to delete expense. Please try again.");
+                console.error('Error deleting expense:', error);
+                alert('Failed to delete expense. Please try again.');
+            }
+        }
+    };
+
+    const handleToggleSelect = (id) => {
+        setSelectedExpenses(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(id)) {
+                newSet.delete(id);
+            } else {
+                newSet.add(id);
+            }
+            return newSet;
+        });
+    };
+
+    const handleSelectAll = () => {
+        const filteredExpenses = getFilteredExpenses();
+        if (selectedExpenses.size === filteredExpenses.length) {
+            setSelectedExpenses(new Set());
+        } else {
+            setSelectedExpenses(new Set(filteredExpenses.map(e => e.id)));
+        }
+    };
+
+    const handleBulkDelete = async () => {
+        if (selectedExpenses.size === 0) return;
+
+        if (window.confirm(`Are you sure you want to delete ${selectedExpenses.size} expense(s)?`)) {
+            try {
+                for (const id of selectedExpenses) {
+                    await storage.deleteExpense(id);
+                }
+                setExpenses(expenses.filter(e => !selectedExpenses.has(e.id)));
+                setSelectedExpenses(new Set());
+            } catch (error) {
+                console.error('Error deleting expenses:', error);
+                alert('Failed to delete some expenses. Please try again.');
             }
         }
     };
@@ -389,20 +431,39 @@ const Expenses = () => {
                             </div>
                         )}
                     </div>
-                    <select
-                        value={sortOrder}
-                        onChange={(e) => setSortOrder(e.target.value)}
-                        className="px-4 py-2.5 bg-slate-800/50 hover:bg-slate-800 border border-white/10 rounded-xl text-slate-300 text-sm font-medium transition-colors focus:outline-none focus:border-blue-500/50"
-                    >
-                        <option value="newest">Newest First</option>
-                        <option value="oldest">Oldest First</option>
-                    </select>
+                    <div className="flex items-center gap-3">
+                        {selectedExpenses.size > 0 && (
+                            <button
+                                onClick={handleBulkDelete}
+                                className="flex items-center gap-2 px-4 py-2.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl text-rose-400 text-sm font-medium transition-colors"
+                            >
+                                <Trash2 size={16} />
+                                Delete {selectedExpenses.size} Selected
+                            </button>
+                        )}
+                        <select
+                            value={sortOrder}
+                            onChange={(e) => setSortOrder(e.target.value)}
+                            className="px-4 py-2.5 bg-slate-800/50 hover:bg-slate-800 border border-white/10 rounded-xl text-slate-300 text-sm font-medium transition-colors focus:outline-none focus:border-blue-500/50"
+                        >
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div className="overflow-x-auto max-h-[600px] overflow-y-auto custom-scrollbar">
                     <table className="w-full text-left text-sm text-slate-400">
                         <thead className="bg-slate-950/30 text-slate-500 uppercase font-semibold text-xs tracking-wider">
                             <tr>
+                                <th className="px-6 py-4 w-12">
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedExpenses.size === filteredExpenses.length && filteredExpenses.length > 0}
+                                        onChange={handleSelectAll}
+                                        className="w-4 h-4 rounded border-white/20 bg-slate-800 text-blue-500 focus:ring-blue-500/50 focus:ring-offset-0 cursor-pointer"
+                                    />
+                                </th>
                                 <th className="px-6 py-4">Date</th>
                                 <th className="px-6 py-4">Description</th>
                                 <th className="px-6 py-4">Category</th>
@@ -415,7 +476,7 @@ const Expenses = () => {
                         <tbody className="divide-y divide-white/5">
                             {filteredExpenses.length === 0 ? (
                                 <tr>
-                                    <td colSpan="7" className="px-6 py-12 text-center text-slate-500">
+                                    <td colSpan="8" className="px-6 py-12 text-center text-slate-500">
                                         <Receipt size={48} className="mx-auto mb-3 opacity-20" />
                                         <p>{expenses.length === 0 ? 'No expenses recorded yet.' : 'No expenses match your filters.'}</p>
                                     </td>
@@ -423,6 +484,14 @@ const Expenses = () => {
                             ) : (
                                 filteredExpenses.sort((a, b) => sortOrder === 'newest' ? new Date(b.date) - new Date(a.date) : new Date(a.date) - new Date(b.date)).map((expense) => (
                                     <tr key={expense.id} className="hover:bg-white/5 transition-colors group">
+                                        <td className="px-6 py-4">
+                                            <input
+                                                type="checkbox"
+                                                checked={selectedExpenses.has(expense.id)}
+                                                onChange={() => handleToggleSelect(expense.id)}
+                                                className="w-4 h-4 rounded border-white/20 bg-slate-800 text-blue-500 focus:ring-blue-500/50 focus:ring-offset-0 cursor-pointer"
+                                            />
+                                        </td>
                                         <td className="px-6 py-4 text-slate-300">{expense.date}</td>
                                         <td className="px-6 py-4 font-medium text-slate-200">{expense.description}</td>
                                         <td className="px-6 py-4">

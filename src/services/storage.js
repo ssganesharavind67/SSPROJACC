@@ -56,7 +56,12 @@ export const storage = {
 
     addProject: (project) => {
         const projects = storage.getProjects();
-        const newProject = { ...project, id: Date.now().toString(), spent: 0, progress: 0 };
+        const newProject = {
+            ...project,
+            id: project.id || Date.now().toString(),
+            spent: project.spent !== undefined ? project.spent : 0,
+            progress: project.progress !== undefined ? project.progress : 0
+        };
         projects.push(newProject);
         localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(projects));
         return newProject;
@@ -97,6 +102,16 @@ export const storage = {
         const logs = JSON.parse(localStorage.getItem(STORAGE_KEYS.LOGS) || '[]');
         const filteredLogs = logs.filter(l => l.projectId !== id);
         localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(filteredLogs));
+
+        // Cascade delete tasks
+        const tasks = JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]');
+        const filteredTasks = tasks.filter(t => t.projectId !== id);
+        localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(filteredTasks));
+
+        // Cascade delete milestones
+        const milestones = JSON.parse(localStorage.getItem('bb_milestones') || '[]');
+        const filteredMilestones = milestones.filter(m => m.projectId !== id);
+        localStorage.setItem('bb_milestones', JSON.stringify(filteredMilestones));
 
         return true;
     },
@@ -248,7 +263,7 @@ export const storage = {
 
     addExpense: (expense) => {
         const expenses = storage.getExpenses();
-        const newExpense = { ...expense, id: Date.now().toString(), date: expense.date || new Date().toISOString().split('T')[0] };
+        const newExpense = { ...expense, id: expense.id || Date.now().toString(), date: expense.date || new Date().toISOString().split('T')[0] };
         expenses.push(newExpense);
         localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses));
 
@@ -371,7 +386,7 @@ export const storage = {
 
     addPayment: (payment) => {
         const payments = storage.getPayments();
-        const newPayment = { ...payment, id: Date.now().toString(), date: payment.date || new Date().toISOString().split('T')[0] };
+        const newPayment = { ...payment, id: payment.id || Date.now().toString(), date: payment.date || new Date().toISOString().split('T')[0] };
         payments.push(newPayment);
         localStorage.setItem(STORAGE_KEYS.PAYMENTS, JSON.stringify(payments));
 
@@ -622,6 +637,9 @@ export const storage = {
             logs: JSON.parse(localStorage.getItem(STORAGE_KEYS.LOGS) || '[]'),
             materials: JSON.parse(localStorage.getItem(STORAGE_KEYS.MATERIALS) || '[]'),
             expenses: JSON.parse(localStorage.getItem(STORAGE_KEYS.EXPENSES) || '[]'),
+            payments: JSON.parse(localStorage.getItem(STORAGE_KEYS.PAYMENTS) || '[]'),
+            tasks: JSON.parse(localStorage.getItem(STORAGE_KEYS.TASKS) || '[]'),
+            milestones: JSON.parse(localStorage.getItem('bb_milestones') || '[]'),
             vendors: JSON.parse(localStorage.getItem('bb_vendors') || '[]'),
             quotes: JSON.parse(localStorage.getItem('bb_quotes') || '[]'),
             subcontractors: JSON.parse(localStorage.getItem('bb_subcontractors') || '[]'),
@@ -642,6 +660,9 @@ export const storage = {
             localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(jsonData.logs || []));
             localStorage.setItem(STORAGE_KEYS.MATERIALS, JSON.stringify(jsonData.materials || []));
             localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(jsonData.expenses || []));
+            localStorage.setItem(STORAGE_KEYS.PAYMENTS, JSON.stringify(jsonData.payments || []));
+            localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(jsonData.tasks || []));
+            localStorage.setItem('bb_milestones', JSON.stringify(jsonData.milestones || []));
             localStorage.setItem('bb_vendors', JSON.stringify(jsonData.vendors || []));
             localStorage.setItem('bb_quotes', JSON.stringify(jsonData.quotes || []));
             localStorage.setItem('bb_subcontractors', JSON.stringify(jsonData.subcontractors || []));
